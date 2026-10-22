@@ -1,0 +1,156 @@
+/// sm_olist — semantic model backup (exported 22 Oct 2026 via Power BI Modeling MCP)
+/// Direct Lake model on lakehouse lh_capstone, schema gold. Culture en-US.
+/// Re-create: add tables from lakehouse, then paste measures into a table named _Measures,
+/// then recreate the relationships listed at the bottom.
+
+table _Measures
+	description: Container table for all measures
+	/// calculated table: {BLANK()}   — column 'Value' is hidden
+
+	measure Revenue = SUM(fact_order_items[price])
+		formatString: #,0.00
+		displayFolder: Sales
+
+	measure Freight = SUM(fact_order_items[freight_value])
+		formatString: #,0.00
+		displayFolder: Sales
+
+	measure 'Total Value' = SUM(fact_order_items[total_value])
+		formatString: #,0.00
+		displayFolder: Sales
+
+	measure Orders = DISTINCTCOUNT(fact_order_items[order_id])
+		formatString: #,0
+		displayFolder: Sales
+
+	measure 'Items Sold' = COUNTROWS(fact_order_items)
+		formatString: #,0
+		displayFolder: Sales
+
+	measure 'Avg Order Value' = DIVIDE([Revenue], [Orders])
+		formatString: #,0.00
+		displayFolder: Sales
+
+	measure 'Late Deliveries %' = DIVIDE(CALCULATE(COUNTROWS(fact_order_items), fact_order_items[is_late] = TRUE()), COUNTROWS(fact_order_items))
+		formatString: 0.0%
+		displayFolder: Delivery
+
+	measure 'Avg Delivery Days' = AVERAGE(fact_order_items[delivery_days])
+		formatString: 0.0
+		displayFolder: Delivery
+
+	measure 'Revenue PY' = IF(ISFILTERED(dim_date), CALCULATE([Revenue], SAMEPERIODLASTYEAR(dim_date[date])))
+		formatString: #,0.00
+		displayFolder: Time Intelligence
+
+	measure 'Revenue YoY %' = IF(ISBLANK([Revenue]) || ISBLANK([Revenue PY]), BLANK(), DIVIDE([Revenue] - [Revenue PY], [Revenue PY]))
+		formatString: 0.0%
+		displayFolder: Time Intelligence
+
+	measure 'Orders PY' = IF(ISFILTERED(dim_date), CALCULATE([Orders], SAMEPERIODLASTYEAR(dim_date[date])))
+		formatString: #,0
+		displayFolder: Time Intelligence
+
+	measure 'Orders YoY %' = IF(ISBLANK([Orders]) || ISBLANK([Orders PY]), BLANK(), DIVIDE([Orders] - [Orders PY], [Orders PY]))
+		formatString: 0.0%
+		displayFolder: Time Intelligence
+
+	measure 'Avg Order Value PY' = IF(ISFILTERED(dim_date), CALCULATE([Avg Order Value], SAMEPERIODLASTYEAR(dim_date[date])))
+		formatString: #,0.00
+		displayFolder: Time Intelligence
+
+	measure 'Avg Order Value YoY %' = IF(ISBLANK([Avg Order Value]) || ISBLANK([Avg Order Value PY]), BLANK(), DIVIDE([Avg Order Value] - [Avg Order Value PY], [Avg Order Value PY]))
+		formatString: 0.0%
+		displayFolder: Time Intelligence
+
+	measure 'Avg Review Score' = AVERAGE(fact_reviews[review_score])
+		formatString: 0.00
+		displayFolder: Reviews
+
+	measure Reviews = COUNTROWS(fact_reviews)
+		formatString: #,0
+		displayFolder: Reviews
+
+	measure Payments = SUM(fact_payments[payment_value])
+		formatString: #,0.00
+		displayFolder: Payments
+
+	measure 'Avg Installments' = AVERAGE(fact_payments[installments])
+		formatString: 0.0
+		displayFolder: Payments
+
+	measure Customers = CALCULATE(DISTINCTCOUNT(dim_customer[customer_id]), dim_customer[is_current] = TRUE())
+		formatString: #,0
+		displayFolder: Customers
+
+	measure 'Revenue Ref Label' =
+			SWITCH(
+			    TRUE(),
+			    ISBLANK([Revenue]), "No data in selected period",
+			    ISBLANK([Revenue PY]), "Select a year to compare",
+			    IF([Revenue YoY %] >= 0, "▲ ", "▼ ") & FORMAT(ABS([Revenue YoY %]), "0.0%") & " vs PY (" & FORMAT([Revenue PY], "#,0") & ")"
+			)
+		displayFolder: Reference Labels
+
+	measure 'Orders Ref Label' =
+			SWITCH(
+			    TRUE(),
+			    ISBLANK([Orders]), "No data in selected period",
+			    ISBLANK([Orders PY]), "Select a year to compare",
+			    IF([Orders YoY %] >= 0, "▲ ", "▼ ") & FORMAT(ABS([Orders YoY %]), "0.0%") & " vs PY (" & FORMAT([Orders PY], "#,0") & ")"
+			)
+		displayFolder: Reference Labels
+
+	measure 'Avg Order Value Ref Label' =
+			SWITCH(
+			    TRUE(),
+			    ISBLANK([Avg Order Value]), "No data in selected period",
+			    ISBLANK([Avg Order Value PY]), "Select a year to compare",
+			    IF([Avg Order Value YoY %] >= 0, "▲ ", "▼ ") & FORMAT(ABS([Avg Order Value YoY %]), "0.0%") & " vs PY (" & FORMAT([Avg Order Value PY], "#,0.00") & ")"
+			)
+		displayFolder: Reference Labels
+
+	measure 'Revenue YoY Ref Label' =
+			SWITCH(
+			    TRUE(),
+			    ISBLANK([Revenue]), "No data in selected period",
+			    ISBLANK([Revenue PY]), "Select a year to compare",
+			    FORMAT([Revenue], "#,0") & " vs " & FORMAT([Revenue PY], "#,0") & " PY"
+			)
+		displayFolder: Reference Labels
+
+	measure 'Period Label' =
+			SWITCH(
+			    TRUE(),
+			    NOT ISFILTERED(dim_date), "All periods (" & FORMAT(MIN(dim_date[year]), "0") & "–" & FORMAT(MAX(dim_date[year]), "0") & ")",
+			    HASONEVALUE(dim_date[year_month]), FORMAT(MIN(dim_date[date]), "MMMM yyyy"),
+			    HASONEVALUE(dim_date[year]), "Year " & SELECTEDVALUE(dim_date[year]),
+			    FORMAT(MIN(dim_date[date]), "dd MMM yyyy") & " – " & FORMAT(MAX(dim_date[date]), "dd MMM yyyy")
+			)
+		displayFolder: Reference Labels
+
+	measure 'YoY Color' = IF(ISBLANK([Revenue YoY %]), "#6B6B6B", IF([Revenue YoY %] >= 0, "#2E7D32", "#C62828"))
+		displayFolder: Reference Labels
+
+
+/// ---------------------------------------------------------------- tables (Direct Lake, source [gold].[<name>])
+/// dim_date         date table (date), date_key hidden, month & day_of_week hidden,
+///                  month_name sortBy month, day_name sortBy day_of_week, date format Short Date
+/// dim_customer     customer_key / row_hash / valid_from / valid_to hidden; is_current visible
+///                  state dataCategory StateOrProvince, city dataCategory City
+/// dim_product      product_key hidden
+/// dim_seller       seller_key hidden; lat/lng dataCategory Latitude/Longitude; state/city categorised
+/// fact_order_items all *_key hidden; price/freight_value/total_value format #,0.00; numeric cols summarizeBy none
+/// fact_payments    *_key hidden; payment_value #,0.00
+/// fact_reviews     *_key hidden
+
+/// ---------------------------------------------------------------- relationships (all many-to-one, single direction)
+relationship fact_order_items[customer_key]   -> dim_customer[customer_key]
+relationship fact_order_items[product_key]    -> dim_product[product_key]
+relationship fact_order_items[seller_key]     -> dim_seller[seller_key]
+relationship fact_order_items[purchase_date_key]  -> dim_date[date_key]     /// active
+relationship fact_order_items[delivered_date_key] -> dim_date[date_key]     /// isActive: false
+relationship fact_payments[customer_key]      -> dim_customer[customer_key]
+relationship fact_payments[purchase_date_key] -> dim_date[date_key]
+relationship fact_reviews[customer_key]       -> dim_customer[customer_key]
+relationship fact_reviews[purchase_date_key]  -> dim_date[date_key]
